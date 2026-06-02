@@ -5,7 +5,7 @@ import logging
 import sqlite3
 from datetime import datetime, timedelta, time as dtime
 import pytz
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 
 # Enable logging
@@ -95,7 +95,7 @@ def schedule_reminder_jobs(job_queue, chat_id, task_id, task_name, target_time, 
         job_queue.run_once(send_reminder, when=time_1_hour_before, chat_id=chat_id, name=job_name,
                            data={'message': f"⏳ <b>Urgent:</b> Only 1 hour left for '{task_name}'!{desc_text}"})
 
-    # ঠিক ডেডলাইনের সময় অ্যালার্ট
+    # ঠিক ডেডলাইনের সময় অ্যালার্ট
     if target_time > now:
         job_queue.run_once(send_reminder, when=target_time, chat_id=chat_id, name=job_name,
                            data={'message': f"🚨 <b>Time is up!</b> The deadline for '{task_name}' has been reached.{desc_text}"})
@@ -128,7 +128,7 @@ async def check_class_alerts(context: ContextTypes.DEFAULT_TYPE) -> None:
         await context.bot.send_message(chat_id=cls['chat_id'], text=message, parse_mode="HTML")
 
 async def send_morning_summary(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """সকাল ৮টায় আজকের ক্লাস এবং টাস্কের লিস্ট একসাথে পাঠাবে"""
+    """সকাল ৮টায় আজকের ক্লাস এবং টাস্কের লিস্ট একসাথে পাঠাবে"""
     now = datetime.now(LOCAL_TZ)
     current_day = now.strftime("%A")
 
@@ -219,7 +219,21 @@ async def post_init(application: Application) -> None:
     # 3. Schedule Morning Summary at 08:00 AM Daily
     morning_time = dtime(hour=8, minute=0, tzinfo=LOCAL_TZ)
     application.job_queue.run_daily(send_morning_summary, time=morning_time)
-    print("Routine alerts and morning jobs scheduled successfully.")
+    
+    # 4. Setup Telegram Native Bot Menu
+    await application.bot.set_my_commands([
+        BotCommand("start", "বটের মেইন মেনু ওপেন করুন"),
+        BotCommand("schedule", "নতুন টাস্ক/অ্যাসাইনমেন্ট সেট করুন"),
+        BotCommand("list", "পেন্ডিং টাস্কগুলো দেখুন"),
+        BotCommand("list_routine", "পুরো সপ্তাহের ক্লাস রুটিন দেখুন"),
+        BotCommand("load_routine", "ফিক্সড রুটিন ডেটাবেসে লোড করুন"),
+        BotCommand("modify", "টাস্ক এডিট করুন"),
+        BotCommand("delete", "টাস্ক ডিলিট করুন"),
+        BotCommand("add_routine", "রুটিনে এক্সট্রা ক্লাস যোগ করুন"),
+        BotCommand("delete_routine", "রুটিন থেকে ক্লাস ডিলিট করুন")
+    ])
+    
+    print("Routine alerts, morning jobs, and bot menu scheduled successfully.")
 
 # --- COMMAND HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -412,7 +426,7 @@ async def add_routine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     if len(parts) < 4:
         await update.message.reply_text(
-            "⚠️ <b>ব্যবহারের নিয়ম:</b>\n<code>/add_routine [Day] [HH:MM] [Room] [Class Name]</code>", parse_mode="HTML"
+            "⚠️ <b>ব্যবহারের নিয়ম:</b>\n/add_routine <code>[Day] [HH:MM] [Room] [Class Name]</code>", parse_mode="HTML"
         )
         return
 
@@ -467,7 +481,7 @@ async def delete_routine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     parts = update.message.text.split()
 
     if len(parts) != 2:
-        await update.message.reply_text("⚠️ <b>Usage:</b> <code>/delete_routine [Routine_ID]</code>", parse_mode="HTML")
+        await update.message.reply_text("⚠️ <b>Usage:</b> /delete_routine <code>[Routine_ID]</code>", parse_mode="HTML")
         return
     try:
         routine_id = int(parts[1])
@@ -500,14 +514,14 @@ async def button_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await query.edit_message_text(
             text="📝 <b>Bot Commands:</b>\n\n"
                  "<b>📌 Tasks:</b>\n"
-                 "<code>/schedule [Task] YYYY-MM-DD HH:MM</code>\n"
-                 "<code>/delete [Task_ID]</code>\n"
-                 "<code>/modify [Task_ID] [New Name] YYYY-MM-DD HH:MM</code>\n\n"
+                 "/schedule <code>[Task] YYYY-MM-DD HH:MM</code>\n"
+                 "/delete <code>[Task_ID]</code>\n"
+                 "/modify <code>[Task_ID] [New Name] YYYY-MM-DD HH:MM</code>\n\n"
                  "<b>📌 Routine:</b>\n"
-                 "<code>/load_routine</code> (Load fixed routine)\n"
-                 "<code>/list_routine</code> (Show all classes & IDs)\n"
-                 "<code>/add_routine [Day] [HH:MM] [Room] [Class Name]</code>\n"
-                 "<code>/delete_routine [Routine_ID]</code>",
+                 "/load_routine <i>(Load fixed routine)</i>\n"
+                 "/list_routine <i>(Show all classes & IDs)</i>\n"
+                 "/add_routine <code>[Day] [HH:MM] [Room] [Class Name]</code>\n"
+                 "/delete_routine <code>[Routine_ID]</code>",
             parse_mode="HTML"
         )
 
@@ -519,11 +533,11 @@ def run_dummy_server():
     server.serve_forever()
 
 def main() -> None:
-    TOKEN = "8626960850:AAGhjWkDpS3NbVHSnDJmLulqX-j4v কলকাতায়x-j4vPuYY1E" # Ensure your exact token is here
+    TOKEN = "8626960850:AAGhjWkDpS3NbVHSnDJmLulqX-j4vPuYY1E" 
 
     app = (
         Application.builder()
-        .token("8626960850:AAGhjWkDpS3NbVHSnDJmLulqX-j4vPuYY1E") # Token goes here
+        .token(TOKEN) 
         .post_init(post_init)
         .build()
     )
