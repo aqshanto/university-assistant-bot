@@ -314,8 +314,6 @@ def main() -> None:
     app = (
         Application.builder()
         .token(TOKEN)
-        .proxy("http://proxy.server:3128")
-        .get_updates_proxy("http://proxy.server:3128")
         .post_init(post_init)
         .build()
     )
