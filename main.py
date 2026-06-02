@@ -18,15 +18,16 @@ LOCAL_TZ = pytz.timezone('Asia/Dhaka')
 # --- DATABASE HELPER ---
 def get_db():
     """Establishes a connection to the local SQLite database."""
-    # PARSE_DECLTYPES automatically converts timestamps to Python datetime objects
     conn = sqlite3.connect('university_bot.db', detect_types=sqlite3.PARSE_DECLTYPES)
-    conn.row_factory = sqlite3.Row  # Allows us to access columns by name (like a dictionary)
+    conn.row_factory = sqlite3.Row  # Allows us to access columns by name
     return conn
 
 def init_db():
-    """Creates the database table automatically if it doesn't exist."""
+    """Creates the database tables automatically if they don't exist."""
     db = get_db()
     cursor = db.cursor()
+    
+    # Tasks Table
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,11 +37,24 @@ def init_db():
             description TEXT DEFAULT NULL
         )
     ''')
+    
+    # Routines Table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS routines (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            day_of_week TEXT NOT NULL,
+            class_name TEXT NOT NULL,
+            start_time TEXT NOT NULL,
+            room_no TEXT NOT NULL
+        )
+    ''')
+    
     db.commit()
     cursor.close()
     db.close()
 
-# --- JOB LOGIC ---
+# --- JOB LOGIC (TASKS) ---
 async def send_reminder(context: ContextTypes.DEFAULT_TYPE) -> None:
     job = context.job
     await context.bot.send_message(chat_id=job.chat_id, text=job.data['message'], parse_mode="HTML")
@@ -65,14 +79,68 @@ def schedule_reminder_jobs(job_queue, chat_id, task_id, task_name, target_time, 
         job_queue.run_once(send_reminder, when=target_time, chat_id=chat_id, name=job_name,
                            data={'message': f"🚨 <b>Time is up!</b> The deadline for '{task_name}' has been reached.{desc_text}"})
 
-# --- STARTUP ROUTINE ---
-async def post_init(application: Application) -> None:
-    init_db() # Ensure the database exists when the bot starts
+# --- JOB LOGIC (ROUTINES) ---
+async def check_class_alerts(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Checks every minute if there's a class starting in exactly 10 minutes."""
+    now = datetime.now(LOCAL_TZ)
+    current_day = now.strftime("%A")
+    
+    # Target time is 10 minutes from now
+    target_time = now + timedelta(minutes=10)
+    target_time_str = target_time.strftime("%H:%M")
 
     db = get_db()
     cursor = db.cursor()
+    cursor.execute(
+        "SELECT chat_id, class_name, room_no FROM routines WHERE day_of_week = ? AND start_time = ?",
+        (current_day, target_time_str)
+    )
+    upcoming_classes = cursor.fetchall()
+    cursor.close()
+    db.close()
 
-    # We compare with the current naive time
+    for cls in upcoming_classes:
+        message = (
+            f"⏰ <b>ক্লাস অ্যালার্ট!</b>\n\n"
+            f"📚 কোর্স: <b>{cls['class_name']}</b>\n"
+            f"🚪 রুম নম্বর: <code>{cls['room_no']}</code>\n"
+            f"⏳ ঠিক ১০ মিনিট পর আপনার ক্লাস শুরু হতে যাচ্ছে! জলদি রেডি হয়ে নিন।"
+        )
+        await context.bot.send_message(chat_id=cls['chat_id'], text=message, parse_mode="HTML")
+
+async def send_morning_routine(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Sends the whole day's routine in the morning."""
+    now = datetime.now(LOCAL_TZ)
+    current_day = now.strftime("%A")
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute("SELECT DISTINCT chat_id FROM routines")
+    chats = cursor.fetchall()
+
+    for chat in chats:
+        chat_id = chat['chat_id']
+        cursor.execute(
+            "SELECT class_name, start_time, room_no FROM routines WHERE chat_id = ? AND day_of_week = ? ORDER BY start_time ASC",
+            (chat_id, current_day)
+        )
+        todays_classes = cursor.fetchall()
+
+        if todays_classes:
+            response = f"☀️ <b>শুভ সকাল! আজ {current_day}-এর ক্লাস রুটিন:</b>\n\n"
+            for index, cls in enumerate(todays_classes, start=1):
+                time_obj = datetime.strptime(cls['start_time'], "%H:%M")
+                time_12h = time_obj.strftime("%I:%M %p")
+                response += f"{index}. 📘 <b>{cls['class_name']}</b>\n   ⏳ সময়: {time_12h} | 🚪 রুম: {cls['room_no']}\n\n"
+            await context.bot.send_message(chat_id=chat_id, text=response, parse_mode="HTML")
+
+# --- STARTUP ROUTINE ---
+async def post_init(application: Application) -> None:
+    init_db() 
+
+    # 1. Restore Task Reminders
+    db = get_db()
+    cursor = db.cursor()
     now_naive = datetime.now(LOCAL_TZ).replace(tzinfo=None)
     cursor.execute("SELECT id, chat_id, task_name, deadline, description FROM tasks WHERE deadline > ?", (now_naive,))
     pending_tasks = cursor.fetchall()
@@ -87,10 +155,18 @@ async def post_init(application: Application) -> None:
             target_time,
             task['description']
         )
-
     print(f"Restored {len(pending_tasks)} upcoming reminders from the database.")
     cursor.close()
     db.close()
+
+    # 2. Schedule Routine Alerts
+    # Checks every minute for classes starting in 10 minutes
+    application.job_queue.run_repeating(check_class_alerts, interval=60, first=10)
+    
+    # Sends daily morning routine at 08:00 AM
+    morning_time = datetime.strptime("08:00", "%H:%M").time()
+    application.job_queue.run_daily(send_morning_routine, time=morning_time, timezone=LOCAL_TZ)
+    print("Routine alerts and morning jobs scheduled successfully.")
 
 # --- COMMAND HANDLERS ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -144,7 +220,6 @@ async def schedule_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         cursor = db.cursor()
         db_time = target_time.replace(tzinfo=None)
 
-        # SQLite uses ? instead of %s
         cursor.execute("INSERT INTO tasks (chat_id, task_name, deadline, description) VALUES (?, ?, ?, ?)",
                        (chat_id, task_name, db_time, description))
 
@@ -154,7 +229,6 @@ async def schedule_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         db.close()
 
         schedule_reminder_jobs(context.job_queue, chat_id, task_id, task_name, target_time, description)
-
         await update.message.reply_text(f"✅ Task <b>ID: {task_id}</b> ('{task_name}') scheduled successfully!", parse_mode="HTML")
 
     except ValueError:
@@ -279,11 +353,52 @@ async def modify_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             job.schedule_removal()
 
         schedule_reminder_jobs(context.job_queue, chat_id, task_id, task_name, target_time, description)
-
         await update.message.reply_text(f"✅ Task <b>ID: {task_id}</b> updated successfully!", parse_mode="HTML")
 
     except ValueError:
         await update.message.reply_text("❌ Format error! Use `YYYY-MM-DD HH:MM` on the first line.")
+
+async def add_routine(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    parts = context.args
+
+    if len(parts) < 4:
+        await update.message.reply_text(
+            "⚠️ <b>ব্যবহারের নিয়ম:</b>\n"
+            "<code>/add_routine [Day] [HH:MM] [Room] [Class Name]</code>\n\n"
+            "<b>উদাহরণ:</b>\n"
+            "<code>/add_routine Sunday 08:30 402-AB Artificial Intelligence</code>",
+            parse_mode="HTML"
+        )
+        return
+
+    day = parts[0].capitalize()
+    time_str = parts[1]
+    room = parts[2]
+    class_name = " ".join(parts[3:])
+
+    valid_days = ["Saturday", "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+    if day not in valid_days:
+        await update.message.reply_text("❌ বারের নাম ইংরেজিতে সঠিকভাবে লিখুন (e.g., Sunday, Monday)")
+        return
+
+    try:
+        datetime.strptime(time_str, "%H:%M")
+    except ValueError:
+        await update.message.reply_text("❌ সময়টি ২৪-ঘণ্টার ফরম্যাটে সঠিকভাবে লিখুন (e.g., 08:30 বা 14:15)")
+        return
+
+    db = get_db()
+    cursor = db.cursor()
+    cursor.execute(
+        "INSERT INTO routines (chat_id, day_of_week, class_name, start_time, room_no) VALUES (?, ?, ?, ?, ?)",
+        (chat_id, day, class_name, time_str, room)
+    )
+    db.commit()
+    cursor.close()
+    db.close()
+
+    await update.message.reply_text(f"✅ রুটিনে যুক্ত হয়েছে: <b>{class_name}</b> ({day} বেলা {time_str} টা, রুম: {room})", parse_mode="HTML")
 
 async def button_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     query = update.callback_query
@@ -291,16 +406,17 @@ async def button_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
     if query.data == 'list_tasks':
         await list_tasks(update, context)
-
     elif query.data == 'help_schedule':
         await query.edit_message_text(
             text="📝 <b>Bot Commands:</b>\n\n"
-                 "<b>1. Schedule:</b>\n<code>/schedule [Task Name] YYYY-MM-DD HH:MM</code>\n"
-                 "<i>(Optional: Use Shift+Enter to add notes on a new line)</i>\n\n"
-                 "<b>2. Delete:</b>\n<code>/delete [Task_ID]</code>\n\n"
-                 "<b>3. Modify:</b>\n<code>/modify [Task_ID] [New Name] YYYY-MM-DD HH:MM</code>",
+                 "<b>1. Schedule Task:</b>\n<code>/schedule [Task] YYYY-MM-DD HH:MM</code>\n\n"
+                 "<b>2. Delete Task:</b>\n<code>/delete [Task_ID]</code>\n\n"
+                 "<b>3. Modify Task:</b>\n<code>/modify [Task_ID] [New Name] YYYY-MM-DD HH:MM</code>\n\n"
+                 "<b>4. Add Class Routine:</b>\n<code>/add_routine [Day] [HH:MM] [Room] [Class Name]</code>",
             parse_mode="HTML"
         )
+
+# --- DUMMY SERVER FOR RENDER ---
 def run_dummy_server():
     """Runs a dummy HTTP server to satisfy Render's Web Service port requirement."""
     port = int(os.environ.get("PORT", 8000))
@@ -323,9 +439,10 @@ def main() -> None:
     app.add_handler(CommandHandler("list", list_tasks))
     app.add_handler(CommandHandler("delete", delete_task))
     app.add_handler(CommandHandler("modify", modify_task))
+    app.add_handler(CommandHandler("add_routine", add_routine))
     app.add_handler(CallbackQueryHandler(button_tap))
 
-    print("Bot is running with SQLite integration...")
+    print("Bot is running with SQLite integration and Routine Alerts...")
     Thread(target=run_dummy_server, daemon=True).start()
     app.run_polling()
 
