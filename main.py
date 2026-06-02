@@ -301,6 +301,12 @@ async def button_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
                  "<b>3. Modify:</b>\n<code>/modify [Task_ID] [New Name] YYYY-MM-DD HH:MM</code>",
             parse_mode="HTML"
         )
+def run_dummy_server():
+    """Runs a dummy HTTP server to satisfy Render's Web Service port requirement."""
+    port = int(os.environ.get("PORT", 8000))
+    server = HTTPServer(('0.0.0.0', port), SimpleHTTPRequestHandler)
+    print(f"Dummy web server running on port {port}...")
+    server.serve_forever()
 
 def main() -> None:
     TOKEN = "8626960850:AAGhjWkDpS3NbVHSnDJmLulqX-j4vPuYY1E"
