@@ -512,16 +512,31 @@ async def button_tap(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await list_routine(update, context)
     elif query.data == 'help_schedule':
         await query.edit_message_text(
-            text="📝 <b>Bot Commands:</b>\n\n"
-                 "<b>📌 Tasks:</b>\n"
-                 "/schedule <code>[Task] YYYY-MM-DD HH:MM</code>\n"
-                 "/delete <code>[Task_ID]</code>\n"
-                 "/modify <code>[Task_ID] [New Name] YYYY-MM-DD HH:MM</code>\n\n"
-                 "<b>📌 Routine:</b>\n"
-                 "/load_routine <i>(Load fixed routine)</i>\n"
-                 "/list_routine <i>(Show all classes & IDs)</i>\n"
-                 "/add_routine <code>[Day] [HH:MM] [Room] [Class Name]</code>\n"
-                 "/delete_routine <code>[Routine_ID]</code>",
+            text="📝 <b>Bot Commands Menu</b>\n"
+                 "━━━━━━━━━━━━━━━━━━\n\n"
+                 "📌 <b>TASKS & ASSIGNMENTS</b>\n\n"
+                 "🔸 <b>নতুন টাস্ক শিডিউল করুন:</b>\n"
+                 "<code>/schedule [Task Name] YYYY-MM-DD HH:MM</code>\n"
+                 "💡 <i>উদাহরণ (কপি করতে ট্যাপ করুন):</i>\n"
+                 "<code>/schedule AI Assignment 2026-06-10 23:59</code>\n\n"
+                 "🔸 <b>টাস্ক এডিট করুন:</b>\n"
+                 "<code>/modify [Task_ID] [New Name] YYYY-MM-DD HH:MM</code>\n"
+                 "💡 <i>উদাহরণ:</i>\n"
+                 "<code>/modify 5 AI Project 2026-06-15 10:00</code>\n\n"
+                 "🔸 <b>টাস্ক ডিলিট করুন:</b>\n"
+                 "<code>/delete [Task_ID]</code>\n\n"
+                 "━━━━━━━━━━━━━━━━━━\n\n"
+                 "📚 <b>CLASS ROUTINE</b>\n\n"
+                 "🔹 <b>ফিক্সড রুটিন লোড করুন:</b>\n"
+                 "/load_routine <i>(একবার দিলেই সব ক্লাস সেভ হবে)</i>\n\n"
+                 "🔹 <b>পুরো রুটিন দেখুন:</b>\n"
+                 "/list_routine <i>(সব ক্লাস ও ID দেখতে)</i>\n\n"
+                 "🔹 <b>রুটিনে এক্সট্রা ক্লাস যোগ করুন:</b>\n"
+                 "<code>/add_routine [Day] [HH:MM] [Room] [Class]</code>\n"
+                 "💡 <i>উদাহরণ:</i>\n"
+                 "<code>/add_routine Sunday 10:30 402-AB Compiler Design</code>\n\n"
+                 "🔹 <b>রুটিন থেকে ক্লাস ডিলিট করুন:</b>\n"
+                 "<code>/delete_routine [Routine_ID]</code>",
             parse_mode="HTML"
         )
 
