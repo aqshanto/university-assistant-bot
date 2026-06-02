@@ -328,6 +328,7 @@ def main() -> None:
     app.add_handler(CallbackQueryHandler(button_tap))
 
     print("Bot is running with SQLite integration...")
+    Thread(target=run_dummy_server, daemon=True).start()
     app.run_polling()
 
 if __name__ == "__main__":
