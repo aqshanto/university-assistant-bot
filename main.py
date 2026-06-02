@@ -164,8 +164,9 @@ async def post_init(application: Application) -> None:
     application.job_queue.run_repeating(check_class_alerts, interval=60, first=10)
     
     # Sends daily morning routine at 08:00 AM
-    morning_time = datetime.strptime("08:00", "%H:%M").time()
-    application.job_queue.run_daily(send_morning_routine, time=morning_time, timezone=LOCAL_TZ)
+    # সময়টিকে সরাসরি টাইমজোনের সাথে যুক্ত করে দেওয়া হলো
+    morning_time = datetime.strptime("08:00", "%H:%M").time().replace(tzinfo=LOCAL_TZ)
+    application.job_queue.run_daily(send_morning_routine, time=morning_time)
     print("Routine alerts and morning jobs scheduled successfully.")
 
 # --- COMMAND HANDLERS ---
